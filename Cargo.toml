@@ -3,10 +3,11 @@ name = "dive"
 version = "0.1.0"
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+# Rendering
 vulkano = "^0.24"
 vulkano-shaders = "^0.24"
 vulkano-win = "^0.24"
 winit = "^0.25"
+# Math
+nalgebra-glm = "^0.13"
