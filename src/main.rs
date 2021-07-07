@@ -12,6 +12,7 @@ use winit::{
 use renderer::*;
 
 mod renderer;
+mod teapot;
 mod primitives;
 
 fn main() {
