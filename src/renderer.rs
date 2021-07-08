@@ -470,7 +470,7 @@ impl Renderer {
         }
 
         let uniform_buffer_subbuffer = {
-            let rotation = glm::rotation(0.0, &glm::Vec3::y_axis());
+            let world: glm::Mat4 = glm::identity();
 
             // FIXME: remove after teapot, it has OpenGL coords
             let aspect_ratio = self.dimensions()[0] as f32 / self.dimensions()[1] as f32;
@@ -480,11 +480,11 @@ impl Renderer {
                 &glm::vec3(0.0, 0.0, 0.0), 
                 &glm::vec3(0.0, -1.0, 0.0),
             );
-            let scale = glm::identity::<f32, 4>() * 0.01;
+            // let scale = glm::identity::<f32, 4>() * 0.01;
 
             let uniform_data = vs::ty::Data {
-                world: rotation.into(),
-                view: (view * scale).into(),
+                world: world.into(),
+                view: view.into(),
                 proj: proj.into(),
             };
 
