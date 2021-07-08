@@ -1,31 +1,30 @@
+use crate::primitives::{Normal, Vertex};
 use nalgebra_glm as glm;
 use std::sync::Arc;
 use vulkano::{
     buffer::{cpu_pool::CpuBufferPool, BufferUsage, CpuAccessibleBuffer},
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, SubpassContents,
-        PrimaryAutoCommandBuffer,
+        AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, PrimaryAutoCommandBuffer,
+        SubpassContents,
     },
-    device::{Device, DeviceExtensions, DeviceOwned, Features, Queue},
     descriptor::descriptor_set::{DescriptorSet, PersistentDescriptorSet},
+    device::{Device, DeviceExtensions, DeviceOwned, Features, Queue},
     format::{ClearValue, Format},
-    instance::PhysicalDevice,
-    render_pass::{Framebuffer, FramebufferAbstract, RenderPass, Subpass},
-    pipeline::{
-        viewport::Viewport,
-        vertex::TwoBuffersDefinition,
-        GraphicsPipeline, GraphicsPipelineAbstract
-    },
-    swapchain::{self, AcquireError, Surface, Swapchain, SwapchainCreationError},
     image::{
         attachment::AttachmentImage,
         view::{ImageView, ImageViewAbstract},
-        ImageUsage, SwapchainImage
+        ImageUsage, SwapchainImage,
     },
+    instance::PhysicalDevice,
+    pipeline::{
+        vertex::TwoBuffersDefinition, viewport::Viewport, GraphicsPipeline,
+        GraphicsPipelineAbstract,
+    },
+    render_pass::{Framebuffer, FramebufferAbstract, RenderPass, Subpass},
+    swapchain::{self, AcquireError, Surface, Swapchain, SwapchainCreationError},
     sync::{FlushError, GpuFuture},
 };
 use winit::window::Window;
-use crate::primitives::{Vertex, Normal};
 
 mod vs {
     vulkano_shaders::shader! {
@@ -89,13 +88,16 @@ pub struct DrawContext {
 /// Draws images onto another image.
 pub struct DrawTarget {
     render_pass: Arc<RenderPass>,
-    color_attachment: Arc<ImageView<Arc<AttachmentImage>>>,
     depth_stencil_attachment: Arc<ImageView<Arc<AttachmentImage>>>,
     framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
 }
 
 impl DrawTarget {
-    pub fn new(render_context: &RenderContext, images: &Vec<Arc<SwapchainImage<Window>>>, dimensions: [u32; 2]) -> Result<Self, String> {
+    pub fn new(
+        render_context: &RenderContext,
+        images: &Vec<Arc<SwapchainImage<Window>>>,
+        dimensions: [u32; 2],
+    ) -> Result<Self, String> {
         let color_format = ImageView::new(images[0].clone()).unwrap().format();
 
         let depth_stencil_format = [
@@ -103,14 +105,14 @@ impl DrawTarget {
             Format::D24Unorm_S8Uint,
             Format::D16Unorm_S8Uint,
         ]
-            .iter()
-            .cloned()
-            .find(|format| {
-                let physical_device = render_context.device.physical_device();
-                let features = format.properties(physical_device).optimal_tiling_features;
-                features.depth_stencil_attachment
-            })
-            .ok_or("Device does not support depth stencils".to_owned())?;
+        .iter()
+        .cloned()
+        .find(|format| {
+            let physical_device = render_context.device.physical_device();
+            let features = format.properties(physical_device).optimal_tiling_features;
+            features.depth_stencil_attachment
+        })
+        .ok_or("Device does not support depth stencils".to_owned())?;
 
         let render_pass = Arc::new(
             vulkano::single_pass_renderpass!(render_context.device.clone(),
@@ -133,26 +135,27 @@ impl DrawTarget {
                     depth_stencil: {depth_stencil}
                 }
             )
-            .map_err(|e| format!("Failed to create render pass: {:?}", e))?
+            .map_err(|e| format!("Failed to create render pass: {:?}", e))?,
         );
 
-        let (color_attachment, depth_stencil_attachment) = Self::create_attachments(
-            render_context.device.clone(), 
-            dimensions, 
-            color_format, 
-            depth_stencil_format
+        let depth_stencil_attachment = Self::create_attachments(
+            render_context.device.clone(),
+            dimensions,
+            depth_stencil_format,
         )?;
 
         let framebuffers = images
             .iter()
             .map(|image| {
-                let framebuffer: Arc<dyn FramebufferAbstract + Send + Sync> = 
-                    Arc::new(Framebuffer::start(render_pass.clone())
-                        .add(ImageView::new(image.clone()).unwrap()).unwrap()
-                        // .add(color_attachment.clone()).unwrap()
-                        .add(depth_stencil_attachment.clone()).unwrap()
+                let framebuffer: Arc<dyn FramebufferAbstract + Send + Sync> = Arc::new(
+                    Framebuffer::start(render_pass.clone())
+                        .add(ImageView::new(image.clone()).unwrap())
+                        .unwrap()
+                        .add(depth_stencil_attachment.clone())
+                        .unwrap()
                         .build()
-                        .unwrap());
+                        .unwrap(),
+                );
 
                 framebuffer
             })
@@ -160,30 +163,39 @@ impl DrawTarget {
 
         Ok(Self {
             render_pass,
-            color_attachment,
             depth_stencil_attachment,
             framebuffers,
         })
     }
 
-    pub fn resize(&mut self, render_context: &RenderContext, dimensions: [u32; 2]) -> Result<(), String> {
-        let (color_attachment, depth_attachment) = Self::create_attachments(
+    pub fn resize(
+        &mut self,
+        render_context: &RenderContext,
+        images: &Vec<Arc<SwapchainImage<Window>>>,
+        dimensions: [u32; 2],
+    ) -> Result<(), String> {
+        self.depth_stencil_attachment = Self::create_attachments(
             render_context.device.clone(),
             dimensions,
-            self.color_attachment.format(),
             self.depth_stencil_attachment.format(),
         )?;
-        self.color_attachment = color_attachment;
-        self.depth_stencil_attachment = depth_attachment;
 
-        // TODO
-        // self.framebuffer = Arc::new(
-        //     Framebuffer::start(self.render_pass().clone())
-        //         .add(self.color_attachment.clone()).unwrap()
-        //         .add(self.depth_stencil_attachment.clone()).unwrap()
-        //         .build()
-        //         .map_err(|e| format!("Failed to build framebuffer: {:?}", e))?
-        // );
+        self.framebuffers = images
+            .iter()
+            .map(|image| {
+                let framebuffer: Arc<dyn FramebufferAbstract + Send + Sync> = Arc::new(
+                    Framebuffer::start(self.render_pass.clone())
+                        .add(ImageView::new(image.clone()).unwrap())
+                        .unwrap()
+                        .add(self.depth_stencil_attachment.clone())
+                        .unwrap()
+                        .build()
+                        .unwrap(),
+                );
+
+                framebuffer
+            })
+            .collect::<Vec<_>>();
 
         Ok(())
     }
@@ -192,40 +204,18 @@ impl DrawTarget {
         &self.render_pass
     }
 
-    pub fn framebuffers(&self) -> &Vec<Arc<dyn FramebufferAbstract + Send + Sync>> {
-        &self.framebuffers
-    }
-    
-    pub fn framebuffer(&self, image_num: usize) -> Option<&Arc<dyn FramebufferAbstract + Send + Sync>> {
+    pub fn framebuffer(
+        &self,
+        image_num: usize,
+    ) -> Option<&Arc<dyn FramebufferAbstract + Send + Sync>> {
         self.framebuffers.get(image_num)
     }
 
-    pub fn color_attachment(&self) -> &Arc<ImageView<Arc<AttachmentImage>>> {
-        &self.color_attachment
-    }
-
     fn create_attachments(
-        device: Arc<Device>, 
-        dimensions: [u32; 2], 
-        color_format: Format, 
-        depth_stencil_format: Format
-    ) -> Result<(
-        Arc<ImageView<Arc<AttachmentImage>>>,
-        Arc<ImageView<Arc<AttachmentImage>>>
-    ), String> {
-        let color_attachment = ImageView::new(
-            AttachmentImage::with_usage(
-                device.clone(),
-                dimensions,
-                color_format,
-                ImageUsage {
-                    color_attachment: true,
-                    transfer_source: true,
-                    ..ImageUsage::none()
-                }
-            ).map_err(|e| format!("Couldn't create color attachment: {:?}", e))?
-        ).unwrap();
-
+        device: Arc<Device>,
+        dimensions: [u32; 2],
+        depth_stencil_format: Format,
+    ) -> Result<Arc<ImageView<Arc<AttachmentImage>>>, String> {
         let depth_stencil_attachment = ImageView::new(
             AttachmentImage::with_usage(
                 device.clone(),
@@ -235,11 +225,13 @@ impl DrawTarget {
                     depth_stencil_attachment: true,
                     transient_attachment: true,
                     ..ImageUsage::none()
-                }
-            ).map_err(|e| format!("Couldn't create depth stencil attachment: {:?}", e))?
-        ).unwrap();
+                },
+            )
+            .map_err(|e| format!("Couldn't create depth stencil attachment: {:?}", e))?,
+        )
+        .unwrap();
 
-        Ok((color_attachment, depth_stencil_attachment))
+        Ok(depth_stencil_attachment)
     }
 }
 
@@ -257,16 +249,15 @@ impl PresentTarget {
         let format = caps.supported_formats[0].0;
         let dimensions: [u32; 2] = surface.window().inner_size().into();
 
-        let (swapchain, images) = 
-            Swapchain::start(device.clone(), surface.clone())
-                .usage(ImageUsage::color_attachment())
-                .num_images(caps.min_image_count)
-                .format(format)
-                .dimensions(dimensions)
-                .usage(ImageUsage::color_attachment())
-                .composite_alpha(alpha)
-                .build()
-                .map_err(|e| format!("Failed to create swapchain: {:?}", e))?;
+        let (swapchain, images) = Swapchain::start(device.clone(), surface.clone())
+            .usage(ImageUsage::color_attachment())
+            .num_images(caps.min_image_count)
+            .format(format)
+            .dimensions(dimensions)
+            .usage(ImageUsage::color_attachment())
+            .composite_alpha(alpha)
+            .build()
+            .map_err(|e| format!("Failed to create swapchain: {:?}", e))?;
 
         Ok(Self {
             images,
@@ -278,12 +269,16 @@ impl PresentTarget {
     fn recreate(&mut self) -> Result<(), SwapchainCreationError> {
         let surface = self.swapchain.surface();
 
-        let caps = surface.capabilities(self.swapchain.device().physical_device()).unwrap();
+        let caps = surface
+            .capabilities(self.swapchain.device().physical_device())
+            .unwrap();
         let alpha = caps.supported_composite_alpha.iter().next().unwrap();
         let format = caps.supported_formats[0].0;
         let dimensions: [u32; 2] = surface.window().inner_size().into();
 
-        let (swapchain, images) = self.swapchain.recreate()
+        let (swapchain, images) = self
+            .swapchain
+            .recreate()
             .format(format)
             .dimensions(dimensions)
             .composite_alpha(alpha)
@@ -309,18 +304,15 @@ impl PresentTarget {
         self.needs_recreate = true;
     }
 
-    pub fn acquire(&mut self) -> Result<(
-        impl GpuFuture,
-        usize
-    ), AcquireError> {
-        let (image_num, suboptimal, swapchain_future) = 
+    pub fn acquire(&mut self) -> Result<(impl GpuFuture, usize), AcquireError> {
+        let (image_num, suboptimal, swapchain_future) =
             match swapchain::acquire_next_image(self.swapchain.clone(), None) {
-                Ok(ok) => ok, 
+                Ok(ok) => ok,
                 Err(AcquireError::OutOfDate) => {
                     self.needs_recreate = true;
                     return Err(AcquireError::OutOfDate);
-                },
-                Err(e) => Err(e)?
+                }
+                Err(e) => Err(e)?,
             };
 
         self.needs_recreate = suboptimal;
@@ -371,7 +363,10 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn start<'a>(physical_device: PhysicalDevice<'a>, surface: Arc<Surface<Window>>) -> Result<Self, String> {
+    pub fn start<'a>(
+        physical_device: PhysicalDevice<'a>,
+        surface: Arc<Surface<Window>>,
+    ) -> Result<Self, String> {
         let queue_family = physical_device
             .queue_families()
             .find(|&q| {
@@ -388,53 +383,67 @@ impl Renderer {
 
             Device::new(
                 physical_device,
-                &Features { shading_rate_image: false , ..*physical_device.supported_features() },
+                &Features {
+                    shading_rate_image: false,
+                    ..*physical_device.supported_features()
+                },
                 &device_ext,
                 [(queue_family, 0.5)].iter().cloned(),
-            ).map_err(|e| format!("Failed to create virtual device: {:?}", e))
+            )
+            .map_err(|e| format!("Failed to create virtual device: {:?}", e))
         }?;
 
         let queue = queues.next().ok_or("No device queues are available")?;
 
         let render_context = RenderContext {
             surface: surface.clone(),
-            device: device.clone(), 
+            device: device.clone(),
             queue,
         };
 
         let present_target = PresentTarget::new(device.clone(), surface.clone()).unwrap();
-        let draw_target = DrawTarget::new(&render_context, &present_target.images, present_target.dimensions()).unwrap();
+        let draw_target = DrawTarget::new(
+            &render_context,
+            &present_target.images,
+            present_target.dimensions(),
+        )
+        .unwrap();
 
-        let vs = vs::Shader::load(device.clone()).map_err(|e| format!("Failed to create vertex shader: {:?}", e))?;
-        let fs = fs::Shader::load(device.clone()).map_err(|e| format!("Failed to create fragment shader: {:?}", e))?;
+        let vs = vs::Shader::load(device.clone())
+            .map_err(|e| format!("Failed to create vertex shader: {:?}", e))?;
+        let fs = fs::Shader::load(device.clone())
+            .map_err(|e| format!("Failed to create fragment shader: {:?}", e))?;
 
         let pipeline = start_graphics_pipeline(
-            device.clone(), 
-            &vs, 
-            &fs, 
-            draw_target.render_pass().clone(), 
-            present_target.dimensions()
+            device.clone(),
+            &vs,
+            &fs,
+            draw_target.render_pass().clone(),
+            present_target.dimensions(),
         );
 
         let uniform_buffer = CpuBufferPool::new(device.clone(), BufferUsage::all());
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(), 
-            BufferUsage::all(), 
-            false, 
+            device.clone(),
+            BufferUsage::all(),
+            false,
             crate::teapot::VERTICES.iter().cloned(),
-        ).unwrap();
+        )
+        .unwrap();
         let normal_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(), 
-            BufferUsage::all(), 
-            false, 
-            crate::teapot::NORMALS.iter().cloned()
-        ).unwrap();
+            device.clone(),
+            BufferUsage::all(),
+            false,
+            crate::teapot::NORMALS.iter().cloned(),
+        )
+        .unwrap();
         let index_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(), 
-            BufferUsage::all(), 
-            false, 
-            crate::teapot::INDICES.iter().cloned()
-        ).unwrap();
+            device.clone(),
+            BufferUsage::all(),
+            false,
+            crate::teapot::INDICES.iter().cloned(),
+        )
+        .unwrap();
 
         Ok(Self {
             render_context,
@@ -453,13 +462,15 @@ impl Renderer {
     pub fn window_resized(&mut self, dimensions: [u32; 2]) {
         if dimensions != self.dimensions() {
             self.present_target.window_resized();
-            self.draw_target.resize(&self.render_context, dimensions).unwrap();
         }
     }
 
-    pub fn render(&mut self, draw_future: impl GpuFuture)  {
+    pub fn render(&mut self, draw_future: impl GpuFuture) {
         if self.present_target.needs_recreate() {
             self.present_target.recreate().unwrap();
+            self.draw_target
+                .resize(&self.render_context, &self.present_target.images, self.present_target.dimensions())
+                .unwrap();
             self.pipeline = start_graphics_pipeline(
                 self.render_context.device.clone(),
                 &self.vs,
@@ -467,6 +478,7 @@ impl Renderer {
                 self.draw_target.render_pass().clone(),
                 self.dimensions(),
             );
+            return;
         }
 
         let uniform_buffer_subbuffer = {
@@ -476,8 +488,8 @@ impl Renderer {
             let aspect_ratio = self.dimensions()[0] as f32 / self.dimensions()[1] as f32;
             let proj = glm::perspective(aspect_ratio, std::f32::consts::FRAC_PI_2, 0.01, 100.0);
             let view = glm::look_at_rh(
-                &glm::vec3(0.3, 0.3, 1.0), 
-                &glm::vec3(0.0, 0.0, 0.0), 
+                &glm::vec3(-100.0, 30.0, 50.0),
+                &glm::vec3(0.0, 0.0, 0.0),
                 &glm::vec3(0.0, -1.0, 0.0),
             );
             // let scale = glm::identity::<f32, 4>() * 0.01;
@@ -501,10 +513,11 @@ impl Renderer {
         );
 
         let mut builder = AutoCommandBufferBuilder::primary(
-            self.render_context.device.clone(), 
-            self.render_context.queue.family(), 
-            CommandBufferUsage::OneTimeSubmit
-        ).unwrap();
+            self.render_context.device.clone(),
+            self.render_context.queue.family(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
 
         let (swapchain_future, image_num) = self.present_target.acquire().unwrap();
 
@@ -531,13 +544,15 @@ impl Renderer {
             .end_render_pass()
             .unwrap();
 
-        self.present_target.present(
-            self.render_context.queue.clone(), 
-            builder,
-            swapchain_future,
-            draw_future,
-            image_num
-        ).unwrap();
+        self.present_target
+            .present(
+                self.render_context.queue.clone(),
+                builder,
+                swapchain_future,
+                draw_future,
+                image_num,
+            )
+            .unwrap();
     }
 
     pub fn dimensions(&self) -> [u32; 2] {
@@ -555,9 +570,8 @@ fn start_graphics_pipeline(
     vs: &vs::Shader,
     fs: &fs::Shader,
     render_pass: Arc<RenderPass>,
-    dimensions: [u32; 2]
-) -> Arc<dyn GraphicsPipelineAbstract + Send + Sync>
- {
+    dimensions: [u32; 2],
+) -> Arc<dyn GraphicsPipelineAbstract + Send + Sync> {
     Arc::new(
         GraphicsPipeline::start()
             .vertex_input(TwoBuffersDefinition::<Vertex, Normal>::new())
@@ -573,6 +587,6 @@ fn start_graphics_pipeline(
             .depth_stencil_simple_depth()
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device.clone())
-            .unwrap()
+            .unwrap(),
     )
 }

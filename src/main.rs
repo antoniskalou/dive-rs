@@ -11,9 +11,9 @@ use winit::{
 
 use renderer::*;
 
+mod primitives;
 mod renderer;
 mod teapot;
-mod primitives;
 
 fn main() {
     let instance = {
@@ -41,18 +41,24 @@ fn main() {
     let mut renderer = Renderer::start(physical_device.clone(), surface.clone()).unwrap();
     let mut previous_frame_end = Some(sync::now(renderer.device()).boxed());
     event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
+        Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } => {
             *control_flow = ControlFlow::Exit;
-        },
-        Event::WindowEvent { event: WindowEvent::Resized(dimensions), .. } => {
+        }
+        Event::WindowEvent {
+            event: WindowEvent::Resized(dimensions),
+            ..
+        } => {
             renderer.window_resized([dimensions.width, dimensions.height]);
-        },
+        }
         Event::RedrawEventsCleared => {
             previous_frame_end.as_mut().unwrap().cleanup_finished();
             renderer.render(previous_frame_end.take().unwrap());
             // TODO: handle somewhere else, also, handle GpuFuture failure
             previous_frame_end = Some(sync::now(renderer.device()).boxed());
-        },
-        _ => {},
+        }
+        _ => {}
     });
 }
