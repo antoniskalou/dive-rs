@@ -13,7 +13,6 @@ use renderer::*;
 
 mod primitives;
 mod renderer;
-mod teapot;
 
 fn main() {
     let instance = {

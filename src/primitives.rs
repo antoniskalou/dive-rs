@@ -1,11 +1,11 @@
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Vertex {
     pub position: [f32; 3],
 }
 
 vulkano::impl_vertex!(Vertex, position);
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Normal {
     pub normal: [f32; 3],
 }

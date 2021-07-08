@@ -25,6 +25,7 @@ use vulkano::{
     sync::{FlushError, GpuFuture},
 };
 use winit::window::Window;
+use genmesh::{Vertices, MapVertex, Indexer, MapToVertices, Triangulate, generators::{SharedVertex, IndexedPolygon}};
 
 mod vs {
     vulkano_shaders::shader! {
@@ -422,26 +423,43 @@ impl Renderer {
             present_target.dimensions(),
         );
 
+        let mut vertices: Vec<(Vertex, Normal)> = Vec::new();
+        let indices: Vec<u16> = {
+            let mut indexer = genmesh::LruIndexer::new(8, |_, v: genmesh::Vertex| {
+                vertices.push((
+                    Vertex{ position: [v.pos.x, v.pos.y, v.pos.z] },
+                    Normal { normal: [v.normal.x, v.normal.y, v.normal.z] }
+                ))
+            });
+
+            genmesh::generators::Cube::new()
+                .triangulate()
+                .vertex(|v| indexer.index(v))
+                .vertices()
+                .map(|i| i as u16)
+                .collect()
+        };
+
         let uniform_buffer = CpuBufferPool::new(device.clone(), BufferUsage::all());
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
             device.clone(),
             BufferUsage::all(),
             false,
-            crate::teapot::VERTICES.iter().cloned(),
+            vertices.iter().map(|(vertex, _normal)| vertex).cloned(),
         )
         .unwrap();
         let normal_buffer = CpuAccessibleBuffer::from_iter(
             device.clone(),
             BufferUsage::all(),
             false,
-            crate::teapot::NORMALS.iter().cloned(),
+            vertices.iter().map(|(_vertex, normal)| normal).cloned(),
         )
         .unwrap();
         let index_buffer = CpuAccessibleBuffer::from_iter(
             device.clone(),
             BufferUsage::all(),
             false,
-            crate::teapot::INDICES.iter().cloned(),
+            indices.iter().cloned(),
         )
         .unwrap();
 
@@ -488,7 +506,7 @@ impl Renderer {
             let aspect_ratio = self.dimensions()[0] as f32 / self.dimensions()[1] as f32;
             let proj = glm::perspective(aspect_ratio, std::f32::consts::FRAC_PI_2, 0.01, 100.0);
             let view = glm::look_at_rh(
-                &glm::vec3(-100.0, 30.0, 50.0),
+                &glm::vec3(-3.0, 1.0, 1.0),
                 &glm::vec3(0.0, 0.0, 0.0),
                 &glm::vec3(0.0, -1.0, 0.0),
             );
